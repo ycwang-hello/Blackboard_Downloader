@@ -13,6 +13,7 @@ import re
 import os
 import shutil
 import numpy as np
+import pickle
 
 class NotFoundError(Exception):  
     def __init__(self, err):
@@ -21,6 +22,36 @@ class UnexpectedError(Exception):
     def __init__(self, err):
         Exception.__init__(self,err)
         
+class FailedToDoError(Exception):  
+    def __init__(self, task, real_exception=None):
+        err = 'Failed to ' + task.info        
+        Exception.__init__(self, err)
+        self.real_exception = real_exception
+        
+def task_info(info):
+    def wrapper(f):
+        f.info = info
+        return f
+    return wrapper
+        
+def try_to(task, maxtry=100, interval=1):
+    for i in range(maxtry):
+        try:
+            task()
+        except:
+            if i == maxtry-1:
+                raise FailedToDoError(task)
+            time.sleep(interval)
+        else:
+            break
+
+def click(find_by, value):
+    @task_info(f'click the object for "{find_by}" == "{value}"')
+    def f():
+        # f.info = f'click the object for {find_by} == {value}'
+        driver.find_element(by=find_by, value=value).click()
+    return f
+
 def select_one(l, morestr=''):
     for i in range(len(l)):
         print('{}\t{}'.format(i, l[i]))
@@ -31,6 +62,15 @@ def select_one(l, morestr=''):
     else:
         return idx
 
+name_map_file = 'BBDown.names'
+if os.path.exists(name_map_file):
+    with open(name_map_file, 'rb') as f:
+        name_mapping = pickle.load(f)
+else:
+    name_mapping = {}
+# if not os.path.exists(name_map_file):
+#     with open(name_map_file, 'w') as f:
+#         f.write('BB_name,BB_path,')
 tryext = ['txt', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'pdf', 'zip', 'rar', '7z', 'jpg', 'JPG', 'png']
 
 def exclude(l):
@@ -50,7 +90,14 @@ def exclude(l):
                 for ext in tryext:
                     if os.path.exists(dirs[i]+'.'+ext):
                         down[i] = False
-                        break
+                        break                
+                if dirs[i] in name_mapping.keys():
+                    if os.path.exists(name_mapping[dirs[i]]):
+                        down[i] = False
+                    for ext in tryext:
+                        if os.path.exists(name_mapping[dirs[i]]+'.'+ext):
+                            down[i] = False
+                            break
             print('I have found some files that you may have already had. Check again.')
             time.sleep(1)
             continue
@@ -87,13 +134,13 @@ options = webdriver.ChromeOptions()
 options.add_experimental_option('prefs', prefs)
 driver = webdriver.Chrome(options=options)#ChromeDriverManager().install())#, chrome_options=option)
 
-driver.get('http://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp')
+driver.get('https://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp')#('http://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp')
 print('Log in, and come back here')
 while True:
-    try:
-        driver.switch_to.frame('content')
-    except:
-        pass
+    # try:
+    #     driver.switch_to.frame('content')
+    # except:
+    #     pass
     src = driver.page_source
     soup = BeautifulSoup(src,features="html.parser")
     courses = soup.find('ul', {'class': re.compile('.courseListing.')})#.find_all('a')
@@ -109,16 +156,35 @@ print('Choose one course:')
 course = courses[select_one(courses)]
 
 driver.find_element_by_link_text(course).click() 
-driver.switch_to.frame('content')
-driver.implicitly_wait(2)        
-trytxt = ['课程文档', '文档', '内容']
+for i in range(100):
+    try:
+        driver.switch_to.frame('content')
+    except:
+        print('Error switching to frame "content", will retry...')
+        if i == 0:#2:
+            print('failed switching to frame "content"')
+            break
+        time.sleep(1)
+    else:
+        break
+driver.maximize_window()
+# driver.find_element_by_id('menuPuller').click()
+try_to(click('id', 'menuPuller'))
+trytxt = ['课程文档', '文档', '内容', '课件资料下载']
 success = False
 root = None
 for txt in trytxt:
     try:
-        driver.find_element_by_link_text(txt).click()
-    except selenium.common.exceptions.NoSuchElementException:
-        print("INFO: {} not found".format(txt))
+        # driver.find_element_by_link_text(txt).click()
+        try_to(click('link text', txt), 2, 2)
+    # except Exception as error: #(selenium.common.exceptions.NoSuchElementException, AttributeError):
+    #     if isinstance(error.real_exception, selenium.common.exceptions.NoSuchElementException) or isinstance(error.real_exception, AttributeError):
+    #         print("INFO: {} not found".format(txt))
+    #         continue
+    #     else:
+    #         raise
+    except FailedToDoError:
+        print(f'INFO: failed to click {txt}')
         continue
     except:
         raise
@@ -129,7 +195,7 @@ for txt in trytxt:
         break
 if not success:
     while True:
-        txt = input('ERROR: I cannot find names in {}. Please input the name >>> ')
+        txt = input('ERROR: I cannot find names in {}. Please input the name >>> '.format(trytxt))
         try:
             driver.find_element_by_link_text(txt).click()
         except selenium.common.exceptions.NoSuchElementException:
@@ -150,6 +216,7 @@ dirs = []
 names = []
 new_dirs = []
 down_urls = []
+down_url_sites = [] #url where I can find down url
 path = ''
 
 ### define download methods
@@ -167,6 +234,7 @@ def search_in_tree(ul):
             names.append(name)
             url = 'http://bb.bnu.edu.cn'+a.get('onclick').split("'")[1]
             down_urls.append(url)
+            down_url_sites.append(driver.current_url)
         elif len(ul) == 1: # I find a folder
             ul = ul[0]
             name = li.find('a', {'class': re.compile(".tocFolder")}, recursice=False).string
@@ -252,6 +320,7 @@ def find_in_folder(foldername): #find file in a folder
             names.append(name)
             url = 'http://bb.bnu.edu.cn'+a.get('href')
             down_urls.append(url)
+            down_url_sites.append(driver.current_url)
         elif find in [find_in_folder, find_tree]:
             #get in folder
             driver.find_element_by_link_text(name).click() 
@@ -284,28 +353,51 @@ y: yes
 n: no(default)
 e: choose which to download, skip existing files
 >>> ''')
+if cont == 'y':
+    down = np.ones(len(dirs)).astype('bool')
 if cont == 'e':
     down = exclude(dirs)   
     cont = input('Start downloading the above file and folders? y(es) or n(o), default no >>> ')
 if cont != 'y':
     raise KeyboardInterrupt('You have stopped the program. Welcome back!')
 
+#use the name of the downloaded file? (otherwise use the name found on the BB)
+use_bb_name = input('''
+Use the name found on the BB or use the name of the downloaded file?
+b: name on BB
+d: name of the downloaded file
+>>> '''
+)
+if use_bb_name == 'b':
+    use_bb_name = True
+elif use_bb_name == 'd':
+    use_bb_name = False
+else:
+    print('use name on BB.')
+    use_bb_name = True
+
+
 dirdict = dict(zip(names, dirs))
-def download(url, diri, name):
+def download(url, url_site, diri, name):
+    old_filel = os.listdir('temp')
+    driver.get(url_site)
     #name: name of file found on the website
     if name[-4:] in ['.pdf', '.PDF']:
-        driver.get(url)
+        try_to(click('link text', name), 2, 2)
+        # driver.get(url) #this is refused, so I no longer do it
         driver.switch_to.frame('content')
         soup = BeautifulSoup(driver.page_source)
         link = soup.find('div',{'class':'item clearfix'}).find('a').get('href')
         driver.get('http://bb.bnu.edu.cn'+link)
     else:
-        driver.get(url)
+        try_to(click('link text', name), 2, 2)
+        # driver.get(url)
     t0 = time.time()
     while True:
         time.sleep(0.5)
         filel = os.listdir('temp')
-        if len(filel) > 0 and '.crdownload' not in ''.join(filel) and '.tmp' not in ''.join(filel): #downloaded
+        new_file = [file for file in filel if file not in old_filel]
+        if len(new_file) > 0 and '.crdownload' not in ''.join(filel) and '.tmp' not in ''.join(filel): #downloaded
             if name in filel:
                 f = name #f: real file name in "temp"
             else:
@@ -318,7 +410,14 @@ def download(url, diri, name):
                 f = filel[int(ind)]
                 print('INFO: you have chosen {}'.format(f))
             ext = '.'+f.split('.')[-1]
-            pf = dirdict[name] #pf: dest path to file
+            if use_bb_name:
+                pf = dirdict[name] #pf: dest path to file
+                print(f'{name} -> {pf}')
+            else:
+                pf = '/'.join(dirdict[name].split('/')[:-1]) + '/' + f 
+                print(f'{name} -> {f} -> {pf}')
+                name_mapping[diri] = pf
+                # with open()
             if pf[-8:] == '$UNKNOWN':
                 print('Since I do not know the file name, I will use the name of the downloaded file.')
                 pf = pf[:-8]+f
@@ -344,7 +443,9 @@ def download(url, diri, name):
                 print('INFO: {} downloaded.'.format(pf))
                 
             break
-        elif len(filel) == 0 and time.time() - t0 > 3:
+        # elif len(new_file) == 0 and time.time() - t0 > 3:
+        #     driver.get(url)
+        elif len(new_file) == 0 and time.time() - t0 > 3:
             print('You are downloading {}.'.format(name))
             ispdf = input('WARNING: Please check, it seems that download has not started. Type "y" if it is PDF, type "skip" to skip this, otherwise download it to "temp" dir by yourself. y/[n] >>> ')
             if ispdf == 'y':
@@ -375,8 +476,15 @@ if cho not in ['o', 's', 'a']:
 
 for new_dir in new_dirs:
     os.mkdir(new_dir)
-for name, diri, url, d in zip(names, dirs, down_urls, down):
-    if d:
-        download(url, diri, name)
+try:
+    for name, diri, url, url_site, d in zip(names, dirs, down_urls, down_url_sites, down):
+        if d:
+            download(url, url_site, diri, name)
+                # pickle.dump(name_mapping, name_map_file)
+except:
+    raise 
+finally:
+    with open(name_map_file, 'wb') as f:
+        pickle.dump(name_mapping, f)
 
 print('Congratulations, download completed without fatal errors!\nYou may close the Chrome and delete the files in temp directory.')
