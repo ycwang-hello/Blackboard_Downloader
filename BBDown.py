@@ -62,6 +62,14 @@ def select_one(l, morestr=''):
     else:
         return idx
 
+univ = input('Input your university (currently supported: "BNU" and "PKU") >>> ')
+if univ == 'BNU':
+    bb_url = 'https://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp'
+if univ == 'PKU':
+    bb_url = 'https://course.pku.edu.cn/'
+else:
+    raise NotImplementedError(f'University "{univ}" is not supported.')
+
 name_map_file = 'BBDown.names'
 if os.path.exists(name_map_file):
     with open(name_map_file, 'rb') as f:
@@ -134,7 +142,7 @@ options = webdriver.ChromeOptions()
 options.add_experimental_option('prefs', prefs)
 driver = webdriver.Chrome(options=options)#ChromeDriverManager().install())#, chrome_options=option)
 
-driver.get('https://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp')#('http://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp')
+driver.get(bb_url)#('http://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp')
 print('Log in, and come back here')
 while True:
     # try:
@@ -170,7 +178,7 @@ for i in range(100):
 driver.maximize_window()
 # driver.find_element_by_id('menuPuller').click()
 try_to(click('id', 'menuPuller'))
-trytxt = ['课程文档', '文档', '内容', '课件资料下载']
+trytxt = ['教学内容', '课程文档', '文档', '内容', '课件资料下载']
 success = False
 root = None
 for txt in trytxt:
@@ -296,54 +304,84 @@ def find_in_folder(foldername): #find file in a folder
         if courses == None:
             time.sleep(1)
         else:
-            flist = courses.find_all('li')
+            flist = courses.find_all('li', recursive=False)
             break    
-    for f in flist:
-# TODO: a.find change to a.findAll, since there may be more than one link for an item.
-        a = f.find('a')
-        if a == None:
-            print(ind+'ERROR: something without a link')
-            continue
-        name = a.find('span')#.string
-        if name != None:
-            name = name.string
-        else:
-            name = a.string#.replace()
-        if name in ['', None]:
-            print(ind+'WARNING: something with unknown name')
-            name = '$UNKNOWN'
-        classname = f.find('img').get('src').split('/')[-1]
-        find = decide_method(classname)
-        if find == 'file':
-            print(ind+name)
-            dirs.append(path+name)
-            names.append(name)
-            url = 'http://bb.bnu.edu.cn'+a.get('href')
-            down_urls.append(url)
-            down_url_sites.append(driver.current_url)
-        elif find in [find_in_folder, find_tree]:
-            #get in folder
-            driver.find_element_by_link_text(name).click() 
-            time.sleep(.5)
-            print(ind+name+' [dir]')
-            path += (name + '/')
+    for fi in flist:
+        if fi.get('class') == ['clearfix', 'read']:
+            fs = fi.findAll('li')
+            itemname = fi.find('div', class_="item clearfix").get_text(strip=True)
+            print(ind+itemname+' [inferred dir]')
+            path += (itemname + '/')
             ind += '.   '
             if not os.path.exists(path):
                 new_dirs.append(path)
-            #now search in the folder!
-            find(name)
-            #exit folder
-            driver.find_element_by_link_text(foldername).click() 
-            time.sleep(.5)
+        else:
+            fs = [fi]
+        for f in fs:
+# TODO: a.find change to a.findAll, since there may be more than one link for an item.
+# TODO: currently changed to a.findAll, but only the first is used.
+            as_ = f.findAll('a')
+            if len(as_) == 0:
+                print(ind+'ERROR: something without a link')
+                continue
+            for a in as_:
+                # if a == None:
+                #     print(ind+'ERROR: something without a link')
+                #     continue
+
+                # check if it is really a file link
+                if a.get('title') == '单击获得更多选项':
+                    continue
+
+                name = a.get_text(strip=True)
+                if name is None: # try other ways to get file name
+                    name = a.find('span')#.string
+                    if name is not None:
+                        name = name.string
+                    if name is None: # name is still None?
+                        name = a.string#.replace()
+                if name in ['', None]:
+                    print(ind+'WARNING: something with unknown name')
+                    name = '$UNKNOWN'
+                    # print(a)
+                    # raise KeyboardInterrupt
+                classname = f.find('img').get('src').split('/')[-1]
+                find = decide_method(classname)
+                if find == 'file':
+                    print(ind+name)
+                    dirs.append(path+name)
+                    names.append(name)
+                    url = 'http://bb.bnu.edu.cn'+a.get('href')
+                    down_urls.append(url)
+                    down_url_sites.append(driver.current_url)
+                elif find in [find_in_folder, find_tree]:
+                    #get in folder
+                    driver.find_element_by_link_text(name).click() 
+                    time.sleep(.5)
+                    print(ind+name+' [dir]')
+                    path += (name + '/')
+                    ind += '.   '
+                    if not os.path.exists(path):
+                        new_dirs.append(path)
+                    #now search in the folder!
+                    find(name)
+                    #exit folder
+                    driver.find_element_by_link_text(foldername).click() 
+                    time.sleep(.5)
+                    path = '/'.join(path.split('/')[:-2])
+                    if path != '':
+                        path += '/'
+                    ind = ind[:-4]
+                elif type(find) == str and 'ERROR' in find:
+                    print(find)
+                    print('Some files may be skipped. contact the author.')
+                else:
+                    raise UnexpectedError()
+        if fi.get('class') == ['clearfix', 'read']:
             path = '/'.join(path.split('/')[:-2])
             if path != '':
                 path += '/'
             ind = ind[:-4]
-        elif type(find) == str and 'ERROR' in find:
-            print(find)
-            print('Some files may be skipped. contact the author.')
-        else:
-            raise UnexpectedError()
 
 find_in_folder(root)
 
@@ -376,8 +414,8 @@ else:
     print('use name on BB.')
     use_bb_name = True
 
-
-dirdict = dict(zip(names, dirs))
+# TODO: BUG in below 1 line: if names the same
+# dirdict = dict(zip(names, dirs))
 def download(url, url_site, diri, name):
     old_filel = os.listdir('temp')
     driver.get(url_site)
@@ -385,10 +423,16 @@ def download(url, url_site, diri, name):
     if name[-4:] in ['.pdf', '.PDF']:
         try_to(click('link text', name), 2, 2)
         # driver.get(url) #this is refused, so I no longer do it
-        driver.switch_to.frame('content')
-        soup = BeautifulSoup(driver.page_source)
-        link = soup.find('div',{'class':'item clearfix'}).find('a').get('href')
-        driver.get('http://bb.bnu.edu.cn'+link)
+        #### Below is not corrected
+        print('WARNING: pdf auto download not implemented')
+        if False:
+            try:
+                driver.switch_to.frame('content')
+            except:
+                pass
+            soup = BeautifulSoup(driver.page_source)
+            link = soup.find('div',{'class':'item clearfix'}).find('a').get('href')
+            driver.get('http://bb.bnu.edu.cn'+link)
     else:
         try_to(click('link text', name), 2, 2)
         # driver.get(url)
@@ -411,10 +455,10 @@ def download(url, url_site, diri, name):
                 print('INFO: you have chosen {}'.format(f))
             ext = '.'+f.split('.')[-1]
             if use_bb_name:
-                pf = dirdict[name] #pf: dest path to file
+                pf = diri #dirdict[name] #pf: dest path to file
                 print(f'{name} -> {pf}')
             else:
-                pf = '/'.join(dirdict[name].split('/')[:-1]) + '/' + f 
+                pf = '/'.join(diri.split('/')[:-1] + [f]) # + '/' + f  # dirdict[name]
                 print(f'{name} -> {f} -> {pf}')
                 name_mapping[diri] = pf
                 # with open()
