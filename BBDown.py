@@ -287,7 +287,8 @@ def decide_method(classstr):
     elif 'lesson' in classstr: #lesson uses tree
         return find_tree
     elif 'document' in classstr: #document, download!
-        return 'file' #add_file
+        # return 'file' #add_file
+        return 'document' #inferred dir
     elif 'file' in classstr: #document, download!
         return 'file' #add_file
     elif 'cal_year_event' in classstr: #document, download!
@@ -307,17 +308,23 @@ def find_in_folder(foldername): #find file in a folder
             flist = courses.find_all('li', recursive=False)
             break    
     for fi in flist:
-        if fi.get('class') == ['clearfix', 'read']:
-            fs = fi.findAll('li')
-            itemname = fi.find('div', class_="item clearfix").get_text(strip=True)
-            print(ind+itemname+' [inferred dir]')
-            path += (itemname + '/')
-            ind += '.   '
-            if not os.path.exists(path):
-                new_dirs.append(path)
-        else:
-            fs = [fi]
-        for f in fs:
+        #########
+        # if fi.get('class') == ['clearfix', 'read']:
+        #     fs = fi.findAll('li')
+        #     itemname = fi.find('div', class_="item clearfix").get_text(strip=True)
+        #     print(ind+itemname+' [inferred dir]')
+        #     path += (itemname + '/')
+        #     ind += '.   '
+        #     if not os.path.exists(path):
+        #         new_dirs.append(path)
+        # else:
+        #     fs = [fi]
+        # for f in fs:
+        ##########
+        f = fi
+        if True:
+        ##########
+
 # TODO: a.find change to a.findAll, since there may be more than one link for an item.
 # TODO: currently changed to a.findAll, but only the first is used.
             as_ = f.findAll('a')
@@ -354,6 +361,43 @@ def find_in_folder(foldername): #find file in a folder
                     url = 'http://bb.bnu.edu.cn'+a.get('href')
                     down_urls.append(url)
                     down_url_sites.append(driver.current_url)
+                elif find == 'document':
+                    fs = fi.findAll('li')
+                    itemname = fi.find('div', class_="item clearfix").get_text(strip=True)
+                    print(ind+itemname+' [inferred dir]')
+                    path += (itemname + '/')
+                    ind += '.   '
+                    if not os.path.exists(path):
+                        new_dirs.append(path)
+                    for f in fs:
+                        for a in f.findAll('a'):
+                            if a.get('title') == '单击获得更多选项':
+                                continue
+                            name = a.get_text(strip=True)
+                            if name is None: # try other ways to get file name
+                                name = a.find('span')#.string
+                                if name is not None:
+                                    name = name.string
+                                if name is None: # name is still None?
+                                    name = a.string#.replace()
+                            if name in ['', None]:
+                                print(ind+'WARNING: something with unknown name')
+                                name = '$UNKNOWN'
+                            classname = f.find('img').get('src').split('/')[-1]
+                            assert decide_method(classname) == 'file'
+                            print(ind+name)
+                            dirs.append(path+name)
+                            names.append(name)
+                            url = 'http://bb.bnu.edu.cn'+a.get('href')
+                            down_urls.append(url)
+                            down_url_sites.append(driver.current_url)
+                    path = '/'.join(path.split('/')[:-2])
+                    if path != '':
+                        path += '/'
+                    ind = ind[:-4]
+
+                    break # links in this inferred dir already handled; not consider the rest <a> any more
+
                 elif find in [find_in_folder, find_tree]:
                     #get in folder
                     driver.find_element_by_link_text(name).click() 
@@ -377,11 +421,14 @@ def find_in_folder(foldername): #find file in a folder
                     print('Some files may be skipped. contact the author.')
                 else:
                     raise UnexpectedError()
-        if fi.get('class') == ['clearfix', 'read']:
-            path = '/'.join(path.split('/')[:-2])
-            if path != '':
-                path += '/'
-            ind = ind[:-4]
+
+        ###########
+        # if fi.get('class') == ['clearfix', 'read']:
+        #     path = '/'.join(path.split('/')[:-2])
+        #     if path != '':
+        #         path += '/'
+        #     ind = ind[:-4]
+        ###########
 
 find_in_folder(root)
 
