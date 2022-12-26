@@ -579,3 +579,6 @@ finally:
         pickle.dump(name_mapping, f)
 
 print('Congratulations, download completed without fatal errors!\nYou may close the Chrome and delete the files in temp directory.')
+
+input('Press Enter to close Chrome...')
+driver.close()
