@@ -64,9 +64,11 @@ def select_one(l, morestr=''):
 
 univ = input('Input your university (currently supported: "BNU" and "PKU") >>> ')
 if univ == 'BNU':
-    bb_url = 'https://bb.bnu.edu.cn/webapps/cas-bjsfdx-BBLEARN/index.jsp'
+    domain = 'bb.bnu.edu.cn'
+    bb_url = f'https://{domain}/webapps/cas-bjsfdx-BBLEARN/index.jsp'
 if univ == 'PKU':
-    bb_url = 'https://course.pku.edu.cn/'
+    domain = 'course.pku.edu.cn'
+    bb_url = f'https://{domain}/'
 else:
     raise NotImplementedError(f'University "{univ}" is not supported.')
 
@@ -547,7 +549,7 @@ def download(url, url_site, diri, name):
                 try:
                     soup = BeautifulSoup(driver.page_source)
                     link = soup.find('div',{'class':'item clearfix'}).find('a').get('href')
-                    driver.get('http://bb.bnu.edu.cn'+link)
+                    driver.get(f'http://{domain}' + link)
                 except (Exception, BaseException) as err:
                     print(err)
                     print('I don\'t think it is pdf.')
